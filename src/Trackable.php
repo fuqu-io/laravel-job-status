@@ -2,15 +2,9 @@
 
 namespace Imtigger\LaravelJobStatus;
 
-use Illuminate\Queue\SerializesModels;
-
 trait Trackable
 {
-    use SerializesModels {
-        __sleep as traitSleep;
-    }
-
-    /** @var int $statusId */
+    /** @var int */
     protected $statusId;
     protected $progressNow = 0;
     protected $progressMax = 0;
@@ -48,18 +42,22 @@ trait Trackable
 
     protected function update(array $data)
     {
-        /** @var JobStatusUpdater $updater */
+        /** @var JobStatusUpdater */
         $updater = app(JobStatusUpdater::class);
         $updater->update($this, $data);
     }
 
     protected function prepareStatus(array $data = [])
     {
-        /** @var JobStatus $entityClass */
+        if (!$this->shouldTrack) {
+            return;
+        }
+
+        /** @var JobStatus */
         $entityClass = app(config('job-status.model'));
 
         $data = array_merge(['type' => $this->getDisplayName()], $data);
-        /** @var JobStatus $status */
+        /** @var JobStatus */
         $status = $entityClass::query()->create($data);
 
         $this->statusId = $status->getKey();
@@ -73,14 +71,5 @@ trait Trackable
     public function getJobStatusId()
     {
         return $this->statusId;
-    }
-
-    public function __sleep()
-    {
-        if (!$this->statusId && $this->shouldTrack) {
-            $this->prepareStatus();
-        }
-
-        return $this->traitSleep();
     }
 }

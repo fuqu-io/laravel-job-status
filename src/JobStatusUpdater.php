@@ -22,7 +22,7 @@ class JobStatusUpdater
     /**
      * @param JobProcessing|JobProcessed|JobFailed|JobExceptionOccurred $event
      */
-    private function updateEvent($event, array $data)
+    protected function updateEvent($event, array $data)
     {
         $job = $this->parseJob($event);
         $jobStatus = $this->getJobStatus($job);
@@ -32,14 +32,19 @@ class JobStatusUpdater
         }
 
         try {
-            $data['attempts'] = $job->attempts();
-        } catch (\Exception $e) {
+            $data['attempts'] = $event->job->attempts();
+        } catch (\Throwable $e) {
+            try {
+                $data['attempts'] = $job->attempts();
+            } catch (\Throwable $e) {
+                Log::error($e->getMessage());
+            }
         }
 
         $jobStatus->update($data);
     }
 
-    private function updateJob($job, array $data)
+    protected function updateJob($job, array $data)
     {
         if ($jobStatus = $this->getJobStatus($job)) {
             $jobStatus->update($data);
@@ -50,41 +55,47 @@ class JobStatusUpdater
      * @param  JobProcessing|JobProcessed|JobFailed|JobExceptionOccurred $event
      * @return mixed|null
      */
-    private function parseJob($event)
+    protected function parseJob($event)
     {
         try {
             $payload = $event->job->payload();
 
             return unserialize($payload['data']['command']);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error($e->getMessage());
 
             return null;
         }
     }
 
-    private function getJobStatusId($job)
+    protected function getJobStatusId($job)
     {
-        if ($job instanceof TrackableJob || method_exists($job, 'getJobStatusId')) {
-            return $job->getJobStatusId();
+        try {
+            if ($job instanceof TrackableJob || method_exists($job, 'getJobStatusId')) {
+                return $job->getJobStatusId();
+            }
+        } catch (\Throwable $e) {
+            Log::error($e->getMessage());
+
+            return null;
         }
 
         return null;
     }
 
-    private function getJobStatus($job)
+    protected function getJobStatus($job)
     {
         if ($id = $this->getJobStatusId($job)) {
             /** @var JobStatus $entityClass */
             $entityClass = app(config('job-status.model'));
 
-            return $entityClass::query()->where('id', '=', $id)->first();
+            return $entityClass::on(config('job-status.database_connection'))->whereKey($id)->first();
         }
 
         return null;
     }
 
-    private function isEvent($job)
+    protected function isEvent($job)
     {
         return $job instanceof JobProcessing
             || $job instanceof JobProcessed
